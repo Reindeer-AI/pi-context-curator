@@ -10,26 +10,27 @@ Curation is disruptive to the active provider context: dropped blocks are absent
 
 ## Install
 
-With npm from a local or remote Git repository:
+Install and register the extension with Pi:
 
 ```bash
-npm install /absolute/path/to/pi-context-curator
-npm install git+https://github.com/Reindeer-AI/pi-context-curator.git
+pi install git:git@github.com:Reindeer-AI/pi-context-curator.git
 ```
 
-Register a local checkout with Pi:
+Then restart Pi or run `/reload`. Confirm registration with `pi list`.
+
+A local checkout can be registered instead:
 
 ```bash
 pi install /absolute/path/to/pi-context-curator
 ```
 
-Try it for one run:
+Try a local checkout for one run without registering it:
 
 ```bash
 pi -e /absolute/path/to/pi-context-curator
 ```
 
-The repository ships its TypeScript source and Pi package manifest directly, so Git installs do not require a build or `prepare` script.
+Running `npm install git+https://github.com/Reindeer-AI/pi-context-curator.git` only adds the package to the current npm project; it does not register the extension with Pi. The repository ships its TypeScript source and Pi package manifest directly, so Git installs do not require a build or `prepare` script.
 
 ## Usage
 
