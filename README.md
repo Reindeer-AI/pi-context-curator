@@ -6,7 +6,7 @@ Instead of replacing an old conversation prefix with one automatic summary, Cont
 
 ## Status
 
-Early MVP. Context projection is non-destructive: the original Pi session remains in its JSONL history.
+Early MVP. Curation is disruptive to the active provider context: dropped blocks are absent and summarized blocks are replaced on every subsequent model request. It remains reversible because the original Pi session stays in its append-only JSONL history.
 
 ## Install
 
@@ -78,7 +78,7 @@ Summarized blocks contain a stable block ID. The model can use the `context_reca
 }
 ```
 
-The source session remains unchanged; only the message projection sent to the provider is transformed.
+The source session remains append-only, but the active model context is replaced by the curated projection. Reset and recall are possible because the original entries remain in session history.
 
 ## How it works
 
