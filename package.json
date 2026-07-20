@@ -1,0 +1,54 @@
+{
+  "name": "pi-context-curator",
+  "version": "0.1.0",
+  "description": "Human-in-the-loop semantic context curation for the Pi coding agent",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Reindeer-AI/pi-context-curator.git"
+  },
+  "homepage": "https://github.com/Reindeer-AI/pi-context-curator#readme",
+  "bugs": {
+    "url": "https://github.com/Reindeer-AI/pi-context-curator/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "context-management",
+    "compaction"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run check && npm test && npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-agent-core": "0.80.10",
+    "@earendil-works/pi-ai": "0.80.10",
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "@earendil-works/pi-tui": "0.80.10",
+    "@types/node": "24.12.4",
+    "typebox": "1.1.38",
+    "typescript": "5.9.3",
+    "vitest": "4.1.9"
+  }
+}
