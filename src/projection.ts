@@ -83,6 +83,7 @@ export function inventoryBlocks(
         ...block,
         messages: [message],
         approxTokens: messageApproxTokens(message),
+        restoreApproxTokens: block.approxTokens,
         fallbackTitle: plan.title,
       }];
     }
@@ -173,11 +174,11 @@ export function estimatePlan(blocks: ContextBlock[], plans: CuratedBlockPlan[]):
         break;
       case "pin":
         pinnedBlocks += 1;
-        afterApproxTokens += block.approxTokens;
+        afterApproxTokens += block.restoreApproxTokens ?? block.approxTokens;
         break;
       default:
         keptBlocks += 1;
-        afterApproxTokens += block.approxTokens;
+        afterApproxTokens += block.restoreApproxTokens ?? block.approxTokens;
         break;
     }
   }

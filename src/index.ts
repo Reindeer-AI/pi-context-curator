@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+  buildSessionContext,
   sessionEntryToContextMessages,
   type ExtensionAPI,
   type ExtensionContext,
@@ -7,6 +8,7 @@ import {
 import { Type } from "typebox";
 import { analyzeBlocks, buildFallbackAnalysis } from "./analyzer.js";
 import { segmentContext } from "./blocks.js";
+import { buildFinalizedSummary } from "./finalize.js";
 import {
   estimatePlan,
   inventoryBlocks,
@@ -17,7 +19,9 @@ import {
 import { recallPage, serializeRecallBlock } from "./recall.js";
 import {
   CURATOR_STATE_ENTRY,
+  contextChangePercent,
   disabledState,
+  isCurationState,
   reductionPercent,
   restoreCurationState,
 } from "./state.js";
@@ -37,8 +41,10 @@ function stateStatus(state: PersistedCurationState | undefined): string {
   const keep = state.blocks.filter((block) => block.action === "keep").length;
   const summarize = state.blocks.filter((block) => block.action === "summarize").length;
   const drop = state.blocks.filter((block) => block.action === "drop").length;
+  const change = contextChangePercent(state.beforeApproxTokens, state.afterApproxTokens);
+  const changeLabel = change <= 0 ? `${change}%` : `+${change}%`;
   return [
-    `Context Curator active: ~${state.beforeApproxTokens.toLocaleString()} → ~${state.afterApproxTokens.toLocaleString()} tokens (-${reductionPercent(state)}%).`,
+    `Context Curator active: ~${state.beforeApproxTokens.toLocaleString()} → ~${state.afterApproxTokens.toLocaleString()} tokens (${changeLabel}).`,
     `${pin} pinned · ${keep} kept · ${summarize} summarized · ${drop} dropped.`,
     state.model ? `Inventory model: ${state.model}.` : "Inventory used deterministic fallback.",
   ].join("\n");
@@ -56,31 +62,67 @@ function activeMessages(ctx: Pick<ExtensionContext, "sessionManager">): AgentMes
     .flatMap((entry) => sessionEntryToContextMessages(entry));
 }
 
+function stateEntryId(
+  ctx: Pick<ExtensionContext, "sessionManager">,
+  state: PersistedCurationState,
+): string | undefined {
+  for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+    if (entry.type !== "custom" || entry.customType !== CURATOR_STATE_ENTRY) continue;
+    if (!isCurationState(entry.data)) continue;
+    if (entry.data.createdAt === state.createdAt) return entry.id;
+  }
+  return undefined;
+}
+
+export function findRecallBlock(
+  ctx: Pick<ExtensionContext, "sessionManager">,
+  blockId: string,
+) {
+  const contexts: AgentMessage[][] = [activeMessages(ctx)];
+  const allEntries = ctx.sessionManager.getEntries();
+  const sourceLeaves = new Set<string>();
+
+  for (const entry of [...ctx.sessionManager.getBranch()].reverse()) {
+    if (entry.type !== "custom" || entry.customType !== CURATOR_STATE_ENTRY) continue;
+    if (!isCurationState(entry.data) || !entry.data.sourceLeafId) continue;
+    if (sourceLeaves.has(entry.data.sourceLeafId)) continue;
+    sourceLeaves.add(entry.data.sourceLeafId);
+    contexts.push(buildSessionContext(allEntries, entry.data.sourceLeafId).messages);
+  }
+  contexts.push(branchMessages(ctx));
+
+  for (const messages of contexts) {
+    const block = segmentContext(messages).find((candidate) => candidate.id === blockId);
+    if (block) return block;
+  }
+  return undefined;
+}
+
 export default function contextCuratorExtension(pi: ExtensionAPI) {
   let activeState: PersistedCurationState | undefined;
   let curationInProgress = false;
-  let projectionPending = false;
+  let postponedThresholdLeafId: string | undefined;
+  let finalizingStateCreatedAt: string | undefined;
 
   const updateStatus = (ctx: Pick<ExtensionContext, "ui">) => {
-    if (!activeState?.enabled || !projectionPending) {
+    if (!activeState?.enabled) {
       ctx.ui.setStatus("context-curator", undefined);
       return;
     }
-    ctx.ui.setStatus(
-      "context-curator",
-      ctx.ui.theme.fg("accent", `curated -${reductionPercent(activeState)}%`),
-    );
+    const reduction = reductionPercent(activeState);
+    const label = reduction > 0 ? `curated -${reduction}%` : "curated";
+    ctx.ui.setStatus("context-curator", ctx.ui.theme.fg("accent", label));
   };
 
   const restore = (ctx: Pick<ExtensionContext, "sessionManager" | "ui">) => {
     activeState = restoreCurationState(ctx.sessionManager.getBranch());
-    projectionPending = false;
+    postponedThresholdLeafId = undefined;
     updateStatus(ctx);
   };
 
   const persist = (state: PersistedCurationState, ctx: Pick<ExtensionContext, "ui">) => {
     activeState = state;
-    projectionPending = state.enabled;
+    postponedThresholdLeafId = undefined;
     pi.appendEntry(CURATOR_STATE_ENTRY, state);
     updateStatus(ctx);
   };
@@ -183,27 +225,59 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
     restore(ctx);
   });
 
-  pi.on("context", async (event, ctx) => {
+  pi.on("context", async (event) => {
     if (!activeState?.enabled) return;
-    const projected = projectMessages(event.messages, activeState);
-    if (projectionPending) {
-      projectionPending = false;
-      updateStatus(ctx);
-    }
-    return { messages: projected.messages };
+    return { messages: projectMessages(event.messages, activeState).messages };
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
-    if (event.reason === "overflow" || ctx.mode !== "tui") return;
+    if (activeState?.enabled) {
+      if (event.reason === "threshold") {
+        const source = activeMessages(ctx);
+        const projected = projectMessages(source, activeState);
+        const contextWindow = ctx.model?.contextWindow ?? 0;
+        if (contextWindow > 0 && projected.stats.afterApproxTokens <= contextWindow * 0.65) {
+          ctx.ui.notify(
+            "Skipped native compaction: the curated projection is already below the safe context target.",
+            "info",
+          );
+          return { cancel: true };
+        }
+      }
 
-    if (event.reason === "threshold" && activeState?.enabled) {
-      const source = activeMessages(ctx);
-      const projected = projectMessages(source, activeState);
-      const contextWindow = ctx.model?.contextWindow ?? 0;
-      if (contextWindow > 0 && projected.stats.afterApproxTokens <= contextWindow * 0.65) {
+      const firstKeptEntryId = stateEntryId(ctx, activeState);
+      if (!firstKeptEntryId) {
+        ctx.ui.notify("Could not locate the active curation checkpoint; using native compaction.", "warning");
+        return;
+      }
+      const summary = buildFinalizedSummary(activeState, (blockId) =>
+        findRecallBlock(ctx, blockId),
+      );
+      finalizingStateCreatedAt = activeState.createdAt;
+      return {
+        compaction: {
+          summary,
+          firstKeptEntryId,
+          tokensBefore: event.preparation.tokensBefore,
+          details: {
+            contextCurator: {
+              version: 1,
+              stateCreatedAt: activeState.createdAt,
+              blocks: activeState.blocks,
+            },
+          },
+        },
+      };
+    }
+
+    if (event.reason === "overflow" || ctx.mode !== "tui") return;
+    if (event.reason === "threshold") {
+      const leafId = ctx.sessionManager.getLeafId() ?? "root";
+      if (postponedThresholdLeafId !== leafId) {
+        postponedThresholdLeafId = leafId;
         ctx.ui.notify(
-          "Skipped native compaction: the curated projection is already below the safe context target.",
-          "info",
+          "Context is near its limit. Native compaction was postponed once; run /context-curate to review it before the next turn.",
+          "warning",
         );
         return { cancel: true };
       }
@@ -213,6 +287,13 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
     const applied = await runCuration(ctx, { signal: event.signal });
     if (applied) return { cancel: true };
     return;
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    if (!activeState?.enabled || finalizingStateCreatedAt !== activeState.createdAt) return;
+    finalizingStateCreatedAt = undefined;
+    persist(disabledState(activeState), ctx);
+    ctx.ui.notify("Curated projection finalized into Pi's native context.", "info");
   });
 
   pi.registerCommand("context-curate", {
@@ -250,7 +331,7 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
             "/context-curate status — show the active projection",
             "/context-curate reset — restore the full context projection",
             "",
-            "Running /compact also opens the curator. Overflow recovery still uses Pi's native compaction.",
+            "With no active plan, /compact opens the curator. With a plan active, /compact finalizes it into native context.",
           ].join("\n"),
           "info",
         );
@@ -277,8 +358,7 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const blocks = segmentContext(branchMessages(ctx));
-      const block = blocks.find((candidate) => candidate.id === params.block_id);
+      const block = findRecallBlock(ctx, params.block_id);
       if (!block) {
         throw new Error(`Unknown context block: ${params.block_id}`);
       }

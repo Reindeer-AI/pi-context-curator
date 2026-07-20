@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { ContextBlock, CuratedBlockPlan, CurationAction } from "./types.js";
 import { estimatePlan } from "./projection.js";
+import { contextChangePercent } from "./state.js";
 
 const ACTION_ORDER: CurationAction[] = ["keep", "summarize", "drop", "pin"];
 
@@ -9,11 +10,6 @@ function formatTokens(value: number): string {
   if (value >= 100_000) return `${Math.round(value / 1_000)}k`;
   if (value >= 10_000) return `${(value / 1_000).toFixed(1)}k`;
   return value.toLocaleString("en-US");
-}
-
-function reduction(before: number, after: number): number {
-  if (before <= 0) return 0;
-  return Math.max(0, Math.round(((before - after) / before) * 100));
 }
 
 function nextAction(action: CurationAction): CurationAction {
@@ -45,10 +41,7 @@ export async function openCurationUi(
         item.action = action;
       };
 
-      const terminalRows = () => {
-        const terminal = (tui as unknown as { terminal?: { rows?: number } }).terminal;
-        return terminal?.rows ?? Number.parseInt(process.env.LINES ?? "40", 10);
-      };
+      const terminalRows = () => process.stdout.rows ?? Number.parseInt(process.env.LINES ?? "40", 10);
 
       const visibleRows = () => Math.max(4, Math.min(working.length, terminalRows() - 13));
 
@@ -58,6 +51,8 @@ export async function openCurationUi(
         if (selected >= scroll + visible) scroll = selected - visible + 1;
         scroll = Math.max(0, Math.min(scroll, Math.max(0, working.length - visible)));
       };
+
+      keepSelectedVisible();
 
       const renderAction = (action: CurationAction): string => {
         const label = action.toUpperCase().padEnd(9);
@@ -77,12 +72,14 @@ export async function openCurationUi(
         render(width: number): string[] {
           const safeWidth = Math.max(20, width);
           const stats = estimatePlan(blocks, working);
+          const change = contextChangePercent(stats.beforeApproxTokens, stats.afterApproxTokens);
+          const changeLabel = change <= 0 ? `${change}%` : `+${change}%`;
           const lines: string[] = [];
           lines.push(truncateToWidth(theme.fg("accent", theme.bold("Context Curator")), safeWidth));
           lines.push(
             truncateToWidth(
               `${theme.fg("muted", "Projected context:")} ~${formatTokens(stats.beforeApproxTokens)} → ~${formatTokens(stats.afterApproxTokens)} tokens ` +
-                theme.fg("success", `(-${reduction(stats.beforeApproxTokens, stats.afterApproxTokens)}%)`),
+                theme.fg(change <= 0 ? "success" : "warning", `(${changeLabel})`),
               safeWidth,
             ),
           );
@@ -144,14 +141,7 @@ export async function openCurationUi(
           const enter = keybindings.matches(data, "tui.select.confirm");
           const escape = keybindings.matches(data, "tui.select.cancel");
 
-          if (up) selected = Math.max(0, selected - 1);
-          else if (down) selected = Math.min(working.length - 1, selected + 1);
-          else if (pageUp) selected = Math.max(0, selected - visibleRows());
-          else if (pageDown) selected = Math.min(working.length - 1, selected + visibleRows());
-          else if (data === " " || data === "space") {
-            const item = working[selected];
-            if (item) item.action = nextAction(item.action);
-          } else if (data === "k" || data === "K") setAction("keep");
+          if (data === "k" || data === "K") setAction("keep");
           else if (data === "s" || data === "S") setAction("summarize");
           else if (data === "d" || data === "D") setAction("drop");
           else if (data === "p" || data === "P") setAction("pin");
@@ -159,7 +149,14 @@ export async function openCurationUi(
             for (let index = 0; index < working.length; index += 1) {
               working[index]!.action = initial[index]?.suggestedAction ?? "keep";
             }
-          } else if (enter) {
+          } else if (data === " " || data === "space") {
+            const item = working[selected];
+            if (item) item.action = nextAction(item.action);
+          } else if (up) selected = Math.max(0, selected - 1);
+          else if (down) selected = Math.min(working.length - 1, selected + 1);
+          else if (pageUp) selected = Math.max(0, selected - visibleRows());
+          else if (pageDown) selected = Math.min(working.length - 1, selected + visibleRows());
+          else if (enter) {
             done(clonePlans(working));
             return;
           } else if (escape) {

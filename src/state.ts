@@ -58,12 +58,11 @@ export function disabledState(previous?: PersistedCurationState): PersistedCurat
   };
 }
 
+export function contextChangePercent(before: number, after: number): number {
+  if (before <= 0) return 0;
+  return Math.round(((after - before) / before) * 100);
+}
+
 export function reductionPercent(state: PersistedCurationState): number {
-  if (state.beforeApproxTokens <= 0) return 0;
-  return Math.max(
-    0,
-    Math.round(
-      ((state.beforeApproxTokens - state.afterApproxTokens) / state.beforeApproxTokens) * 100,
-    ),
-  );
+  return Math.max(0, -contextChangePercent(state.beforeApproxTokens, state.afterApproxTokens));
 }

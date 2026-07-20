@@ -16,8 +16,6 @@ interface MessageLike {
   summary?: string;
   command?: string;
   output?: string;
-  toolName?: string;
-  toolCallId?: string;
   timestamp?: number;
 }
 
@@ -55,19 +53,11 @@ export function messageText(message: AgentMessage): string {
 }
 
 export function messageApproxTokens(message: AgentMessage): number {
-  const value = message as MessageLike;
-  let chars = messageText(message).length + (value.role?.length ?? 0);
-  if (value.toolName) chars += value.toolName.length;
-  if (value.toolCallId) chars += value.toolCallId.length;
-  return Math.max(1, Math.ceil(chars / 4));
+  return Math.max(1, Math.ceil(messageText(message).length / 4));
 }
 
 function safeStringify(value: unknown): string {
-  try {
-    return JSON.stringify(value) ?? "";
-  } catch {
-    return String(value);
-  }
+  return JSON.stringify(value) ?? "";
 }
 
 function messageTimestamp(message: AgentMessage): number {

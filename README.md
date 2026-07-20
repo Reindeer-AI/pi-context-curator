@@ -30,7 +30,7 @@ Try a local checkout for one run without registering it:
 pi -e /absolute/path/to/pi-context-curator
 ```
 
-Running `npm install git+https://github.com/Reindeer-AI/pi-context-curator.git` only adds the package to the current npm project; it does not register the extension with Pi. The repository ships its TypeScript source and Pi package manifest directly, so Git installs do not require a build or `prepare` script.
+The repository ships TypeScript source directly. `npm install` alone adds it to the current npm project but does not register it with Pi.
 
 ## Usage
 
@@ -40,9 +40,10 @@ Running `npm install git+https://github.com/Reindeer-AI/pi-context-curator.git` 
 /context-curate status   Show the active projection and estimated savings
 /context-curate reset    Restore the full active context
 /context-curate help     Show command help
+/compact                 Finalize an active projection into native context
 ```
 
-Running `/compact` opens Context Curator instead of immediately applying native compaction. Automatic threshold compaction also opens it when no curation is active. Pi's native overflow recovery remains enabled as a safety fallback.
+Without an active projection, `/compact` opens Context Curator. With one active, `/compact` materializes its retained blocks and summaries into a native Pi compaction, disables the request-time projection, and keeps later turns verbatim. At the automatic threshold, native compaction is postponed once so there is an opportunity to run `/context-curate`; an active projection is finalized automatically if native compaction becomes necessary.
 
 ## Screenshots
 
@@ -85,7 +86,7 @@ Summarized blocks contain a stable block ID. The model can use the `context_reca
 
 ```json
 {
-  "block_id": "user:1712345678:abcd1234",
+  "block_id": "user:1712345678:abcdef123456",
   "offset": 0,
   "limit": 20000
 }
@@ -102,18 +103,17 @@ The source session remains append-only, but the active model context is replaced
 5. Apply the plan through Pi's `context` event before each provider request.
 6. Leave future, uncatalogued turns visible by default.
 7. Build later inventories from the current curated projection, so dropped material stays hidden and summarized material stays summarized.
+8. Optionally finalize the projection with `/compact`, replacing request-time filtering with a native Pi compaction checkpoint.
 
 The latest block is always recommended as `PIN`. A fresh `/context-curate` may reconsider blocks marked `KEEP`, while `PIN` remains pinned. `/context-curate edit` preserves every current action exactly. If semantic analysis fails or no model credentials are available, the extension falls back to conservative deterministic recommendations.
 
-## Safety properties
+## Guarantees
 
-- Original session entries are never rewritten or deleted.
-- Entire user-turn/tool chains are projected together, avoiding orphaned tool calls.
-- Newly appended turns default to `KEEP` until the next curation.
-- Re-curation preserves hidden `DROP` decisions; use `/context-curate reset` to restore the raw projection.
-- Projection changes only when the user applies a plan, limiting prompt-cache churn.
-- Overflow recovery falls back to Pi's native compaction.
-- Invalid or incomplete model inventory output falls back safely.
+- Session entries remain append-only; `/context-curate reset` restores the raw projection.
+- User-turn/tool chains stay atomic, avoiding orphaned tool calls.
+- New turns default to `KEEP`, and re-curation preserves hidden `DROP` decisions.
+- Projection changes only when a plan is applied, keeping request prefixes stable.
+- Native compaction finalizes an active projection instead of reintroducing its dropped blocks; invalid inventory output uses conservative defaults.
 
 ## Configuration
 
@@ -144,7 +144,7 @@ The package is loaded directly from TypeScript; no build step is required.
 
 ## Prior art
 
-The design builds on ideas demonstrated by `pi-context-manager`, `pi-reduce`, `pi-condense`, `pi-dcp`, `pi-smart-compact`, OpenCode DCP, and Magic Compact. Context Curator focuses specifically on semantic, human-reviewed, reversible, non-contiguous context projection.
+Related work includes [pi-smart-compact](https://pi.dev/packages/pi-smart-compact), [pi-condense](https://pi.dev/packages/pi-condense), and [OpenCode Dynamic Context Pruning](https://github.com/Opencode-DCP/opencode-dynamic-context-pruning). Context Curator focuses on semantic, human-reviewed, reversible, non-contiguous context projection.
 
 ## License
 

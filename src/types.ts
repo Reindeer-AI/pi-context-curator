@@ -9,6 +9,7 @@ export interface ContextBlock {
   index: number;
   messages: AgentMessage[];
   approxTokens: number;
+  restoreApproxTokens?: number;
   fallbackTitle: string;
   startTimestamp: number;
 }

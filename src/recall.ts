@@ -12,12 +12,7 @@ export function serializeRecallBlock(block: ContextBlock): string {
   return block.messages
     .map((message, index) => {
       const role = (message as { role?: string }).role ?? "unknown";
-      let serialized: string;
-      try {
-        serialized = JSON.stringify(message, null, 2);
-      } catch {
-        serialized = String(message);
-      }
+      const serialized = JSON.stringify(message, null, 2);
       return `[Message ${index + 1}: ${role}]\n${serialized}`;
     })
     .join("\n\n");

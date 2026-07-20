@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { segmentContext } from "../src/blocks.js";
 import {
+  estimatePlan,
   inventoryBlocks,
   makePlans,
   mergeHiddenPlans,
@@ -87,6 +88,18 @@ describe("projectMessages", () => {
 
     const editing = makePlans(blocks, analyses, previous, { reusePreviousActions: true });
     expect(editing.map((item) => item.action)).toEqual(["pin", "keep"]);
+  });
+
+  it("uses raw token cost when a summarized block is restored to keep", () => {
+    const rawMessage = user("x".repeat(8_000), 1);
+    const rawBlock = segmentContext([rawMessage])[0]!;
+    const previous = stateFor([plan(rawBlock.id, "summarize", rawBlock.approxTokens)]);
+    const visible = inventoryBlocks([rawMessage], previous);
+    const restoredPlan = plan(rawBlock.id, "keep", visible[0]!.approxTokens);
+
+    const stats = estimatePlan(visible, [restoredPlan]);
+    expect(stats.beforeApproxTokens).toBeLessThan(rawBlock.approxTokens);
+    expect(stats.afterApproxTokens).toBe(rawBlock.approxTokens);
   });
 
   it("builds a new inventory from the current projection instead of resurfacing pruned blocks", () => {
