@@ -44,6 +44,18 @@ Running `npm install git+https://github.com/Reindeer-AI/pi-context-curator.git` 
 
 Running `/compact` opens Context Curator instead of immediately applying native compaction. Automatic threshold compaction also opens it when no curation is active. Pi's native overflow recovery remains enabled as a safety fallback.
 
+## Screenshots
+
+Semantic inventory overview using sample context:
+
+![Context Curator inventory overview](docs/screenshots/curator-overview.png)
+
+Selected summary detail and rationale:
+
+![Context Curator summary detail](docs/screenshots/curator-summary-detail.png)
+
+Regenerate both images from the actual TUI renderer with `npm run screenshots`.
+
 ## Curator actions
 
 | Action | Effect |
