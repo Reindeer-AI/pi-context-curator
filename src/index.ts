@@ -101,7 +101,7 @@ export function findRecallBlock(
 export default function contextCuratorExtension(pi: ExtensionAPI) {
   let activeState: PersistedCurationState | undefined;
   let curationInProgress = false;
-  let postponedThresholdLeafId: string | undefined;
+  let thresholdPostponed = false;
   let finalizingStateCreatedAt: string | undefined;
 
   const updateStatus = (ctx: Pick<ExtensionContext, "ui">) => {
@@ -116,13 +116,13 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
 
   const restore = (ctx: Pick<ExtensionContext, "sessionManager" | "ui">) => {
     activeState = restoreCurationState(ctx.sessionManager.getBranch());
-    postponedThresholdLeafId = undefined;
+    thresholdPostponed = false;
     updateStatus(ctx);
   };
 
   const persist = (state: PersistedCurationState, ctx: Pick<ExtensionContext, "ui">) => {
     activeState = state;
-    postponedThresholdLeafId = undefined;
+    thresholdPostponed = false;
     pi.appendEntry(CURATOR_STATE_ENTRY, state);
     updateStatus(ctx);
   };
@@ -272,9 +272,8 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
 
     if (event.reason === "overflow" || ctx.mode !== "tui") return;
     if (event.reason === "threshold") {
-      const leafId = ctx.sessionManager.getLeafId() ?? "root";
-      if (postponedThresholdLeafId !== leafId) {
-        postponedThresholdLeafId = leafId;
+      if (!thresholdPostponed) {
+        thresholdPostponed = true;
         ctx.ui.notify(
           "Context is near its limit. Native compaction was postponed once; run /context-curate to review it before the next turn.",
           "warning",
@@ -290,6 +289,7 @@ export default function contextCuratorExtension(pi: ExtensionAPI) {
   });
 
   pi.on("session_compact", async (_event, ctx) => {
+    thresholdPostponed = false;
     if (!activeState?.enabled || finalizingStateCreatedAt !== activeState.createdAt) return;
     finalizingStateCreatedAt = undefined;
     persist(disabledState(activeState), ctx);

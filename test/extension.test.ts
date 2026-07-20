@@ -106,4 +106,65 @@ describe("extension lifecycle", () => {
     expect(statuses.at(-1)).toBeUndefined();
     expect(firstEntryId).toBeTruthy();
   });
+
+  it("postpones threshold compaction only once even when the leaf changes", async () => {
+    const sessionManager = SessionManager.inMemory();
+    sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "first turn" }],
+      timestamp: 1,
+    } satisfies Message);
+
+    const handlers = new Map<string, Array<(...args: any[]) => Promise<any>>>();
+    const notifications: string[] = [];
+    const pi = {
+      on(event: string, handler: (...args: any[]) => Promise<any>) {
+        const existing = handlers.get(event) ?? [];
+        existing.push(handler);
+        handlers.set(event, existing);
+      },
+      appendEntry(customType: string, data: unknown) {
+        return sessionManager.appendCustomEntry(customType, data);
+      },
+      registerCommand() {},
+      registerTool() {},
+    } as unknown as ExtensionAPI;
+    contextCuratorExtension(pi);
+
+    const ctx = {
+      sessionManager,
+      mode: "tui",
+      model: undefined,
+      ui: {
+        theme: { fg: (_name: string, text: string) => text },
+        setStatus() {},
+        notify(message: string) {
+          notifications.push(message);
+        },
+      },
+    };
+    const thresholdEvent = {
+      reason: "threshold",
+      signal: new AbortController().signal,
+      preparation: { tokensBefore: 100 },
+    };
+
+    await handlers.get("session_start")![0]!({}, ctx);
+    const first = await handlers.get("session_before_compact")![0]!(thresholdEvent, ctx);
+    expect(first).toEqual({ cancel: true });
+
+    sessionManager.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "new leaf" }],
+      timestamp: 2,
+    } satisfies Message);
+    const second = await handlers.get("session_before_compact")![0]!(thresholdEvent, ctx);
+    expect(second).toBeUndefined();
+    expect(notifications).toHaveLength(1);
+
+    await handlers.get("session_compact")![0]!({}, ctx);
+    const afterCompaction = await handlers.get("session_before_compact")![0]!(thresholdEvent, ctx);
+    expect(afterCompaction).toEqual({ cancel: true });
+    expect(notifications).toHaveLength(2);
+  });
 });
