@@ -6,7 +6,7 @@ Instead of replacing an old conversation prefix with one automatic summary, Cont
 
 ## Status
 
-Early MVP. Curation is disruptive to the active provider context: dropped blocks are absent and summarized blocks are replaced on every subsequent model request. It remains reversible because the original Pi session stays in its append-only JSONL history.
+Curation is disruptive to the active provider context: dropped blocks are absent and summarized blocks are replaced on every subsequent model request. It remains reversible because the original Pi session stays in its append-only JSONL history.
 
 ## Install
 
@@ -114,7 +114,7 @@ Optional environment variables:
 ## Known limitations
 
 - Token counts are estimates for conversation messages and exclude provider-specific system/tool-schema overhead.
-- Blocks are user-turn based in the MVP; topic clustering across multiple turns is planned.
+- Blocks are user-turn based; topic clustering across multiple turns is not currently supported.
 - The semantic inventory covers conversation messages, not the system prompt or active tool schemas.
 - A native compaction can make very old raw content unavailable to the active context builder, although it remains in the session history when recoverable from entries.
 - Multiple extensions that transform Pi's `context` event are order-dependent.
